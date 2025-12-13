@@ -1,4 +1,15 @@
+# reqs added for AK's work
 fastapi
 pydantic
 uvicorn
 python-multipart
+
+# deps added for BI's work
+chromadb
+pypdf
+groq
+
+# deps added for RA's work
+
+# deps added for ST's work
+

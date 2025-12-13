@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 class ChatSettings(BaseModel):
-    model: Optional[str] = "gemini-pro"
+    model: Optional[str] = "llama-3.3-70b-versatile"
     temperature: Optional[float] = 0.2
 
 class ChatRequest(BaseModel):
