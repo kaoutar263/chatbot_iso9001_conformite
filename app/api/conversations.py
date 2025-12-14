@@ -140,11 +140,32 @@ async def ask_question(convo_id: str, payload: ChatRequest, current_user: dict =
         if payload.settings and payload.settings.model:
             model_name = payload.settings.model
 
+        # Build Message History
+        # Fetch last 6 messages (3 turns)
+        conn = get_db_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 6", 
+                (convo_id,)
+            )
+            # Reverse to chronological order
+            history_rows = cursor.fetchall()[::-1]
+            history_messages = [{"role": row[0], "content": row[1]} for row in history_rows]
+        finally:
+            conn.close()
+
+        # Construct full message list
+        # Ensure roles are 'system', 'user', 'assistant'
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        for msg in history_messages:
+            # Simple validation/sanitization could go here
+            messages.append(msg)
+            
+        messages.append({"role": "user", "content": question})
+
         completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": question}
-            ],
+            messages=messages,
             model=model_name,
         )
         

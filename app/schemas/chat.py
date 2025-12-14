@@ -7,7 +7,7 @@ class ChatSettings(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    settings: Optional[ChatSettings]
+    settings: Optional[ChatSettings] = None
 
 class Citation(BaseModel):
     source: str
