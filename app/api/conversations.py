@@ -1,5 +1,7 @@
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, UploadFile, File, Depends
 from uuid import uuid4
+from app.api.auth import get_current_user
+from app.database import get_db_connection
 from app.schemas.conversation import (
     ConversationCreateResponse,
     ConversationListResponse
@@ -9,12 +11,17 @@ from app.schemas.document import DocumentUploadResponse
 import chromadb
 from chromadb.config import Settings
 from groq import Groq
+import sqlite3
+from datetime import datetime
+from app.utils import process_pdf_stream
 import os
-import json
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Initialize Groq Client
 client = Groq(
-    api_key="XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    api_key=os.getenv("GROQ_API_KEY")
 )
 
 # Initialize ChromaDB Client
@@ -27,75 +34,64 @@ collection = chroma_client.get_or_create_collection("iso_docs")
 def get_chroma_collection():
     return collection
 
-
 router = APIRouter()
 
 # 🟦 CONVERSATION MANAGEMENT
 
-import sqlite3
-from datetime import datetime
-
-# Database Helper
-DB_PATH = "chat.db"
-
-def init_db():
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS conversations (
-                id TEXT PRIMARY KEY,
-                created_at TEXT
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                conversation_id TEXT,
-                role TEXT,
-                content TEXT,
-                timestamp TEXT,
-                FOREIGN KEY(conversation_id) REFERENCES conversations(id)
-            )
-        """)
-        conn.commit()
-
-# Initialize DB on module load (simple approach)
-init_db()
-
 @router.post("/", response_model=ConversationCreateResponse)
-def create_conversation():
+def create_conversation(current_user: dict = Depends(get_current_user)):
     new_id = str(uuid4())
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("INSERT INTO conversations (id, created_at) VALUES (?, ?)", 
-                     (new_id, datetime.now().isoformat()))
+    conn = get_db_connection()
+    try:
+        conn.execute("INSERT INTO conversations (id, user_id, created_at) VALUES (?, ?, ?)", 
+                     (new_id, current_user["id"], datetime.now().isoformat()))
+        conn.commit()
+    finally:
+        conn.close()
     return {"convo_id": new_id}
 
 @router.get("/", response_model=ConversationListResponse)
-def list_conversations():
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.execute("SELECT id FROM conversations")
+def list_conversations(current_user: dict = Depends(get_current_user)):
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute("SELECT id FROM conversations WHERE user_id = ?", (current_user["id"],))
         ids = [row[0] for row in cursor.fetchall()]
+    finally:
+        conn.close()
     return {"conversations": ids}
 
 @router.get("/{convo_id}/history")
-def get_conversation_history(convo_id: str):
-    with sqlite3.connect(DB_PATH) as conn:
+def get_conversation_history(convo_id: str, current_user: dict = Depends(get_current_user)):
+    conn = get_db_connection()
+    try:
+        # Validate ownership
+        cursor = conn.execute("SELECT 1 FROM conversations WHERE id = ? AND user_id = ?", (convo_id, current_user["id"]))
+        if not cursor.fetchone():
+             return {"history": []}
+
         cursor = conn.execute("SELECT role, content, timestamp FROM messages WHERE conversation_id = ? ORDER BY id ASC", (convo_id,))
         messages = [
             {"role": row[0], "content": row[1], "timestamp": row[2]} 
             for row in cursor.fetchall()
         ]
+    finally:
+        conn.close()
     return {"history": messages}
 
 # 🟧 CHAT ENDPOINT
 
-from app.utils import process_pdf_stream
-
-# ... (imports)
-
 @router.post("/{convo_id}/ask", response_model=ChatResponse)
-async def ask_question(convo_id: str, payload: ChatRequest):
+async def ask_question(convo_id: str, payload: ChatRequest, current_user: dict = Depends(get_current_user)):
     try:
+        # Validate ownership
+        conn = get_db_connection()
+        try:
+            cursor = conn.execute("SELECT 1 FROM conversations WHERE id = ? AND user_id = ?", (convo_id, current_user["id"]))
+            if not cursor.fetchone():
+                 return {"answer": "Access Denied: You do not own this conversation.", "citations": []}
+        finally:
+            conn.close()
+
         question = payload.message
         
         # 1. Vector Search
@@ -157,11 +153,13 @@ async def ask_question(convo_id: str, payload: ChatRequest):
         # 3. Save History (SQLite)
         timestamp = datetime.now().isoformat()
         try:
-            with sqlite3.connect(DB_PATH) as conn:
-                conn.execute("INSERT INTO messages (conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
-                             (convo_id, "user", question, timestamp))
-                conn.execute("INSERT INTO messages (conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
-                             (convo_id, "assistant", answer, timestamp))
+            conn = get_db_connection()
+            conn.execute("INSERT INTO messages (conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
+                         (convo_id, "user", question, timestamp))
+            conn.execute("INSERT INTO messages (conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
+                         (convo_id, "assistant", answer, timestamp))
+            conn.commit()
+            conn.close()
         except Exception as e:
             print(f"Error saving history: {e}")
 
@@ -180,7 +178,16 @@ async def ask_question(convo_id: str, payload: ChatRequest):
 # 🟩 DOCUMENT MANAGEMENT
 
 @router.post("/{convo_id}/documents", response_model=DocumentUploadResponse)
-def upload_document(convo_id: str, file: UploadFile = File(...)):
+def upload_document(convo_id: str, file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
+    # Validate ownership
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute("SELECT 1 FROM conversations WHERE id = ? AND user_id = ?", (convo_id, current_user["id"]))
+        if not cursor.fetchone():
+             return {"status": "error", "chunks_added": 0}
+    finally:
+        conn.close()
+
     # 1. Process PDF
     try:
         # Read file into memory (FastAPI UploadFile.file is a SpooledTemporaryFile)
@@ -215,7 +222,7 @@ def upload_document(convo_id: str, file: UploadFile = File(...)):
         }
 
 @router.get("/{convo_id}/documents")
-def list_documents(convo_id: str):
+def list_documents(convo_id: str, current_user: dict = Depends(get_current_user)):
     # This is tricky with Chroma, we need to query by metadata
     # Implementing simple count for now
     collection = get_chroma_collection()
@@ -230,5 +237,5 @@ def list_documents(convo_id: str):
     return {"documents": list(sources)}
 
 @router.delete("/{convo_id}/documents/{doc_id}")
-def delete_document(convo_id: str, doc_id: str):
+def delete_document(convo_id: str, doc_id: str, current_user: dict = Depends(get_current_user)):
     return {"status": "deleted"}

@@ -11,5 +11,10 @@ groq
 
 # deps added for RA's work
 
+
 # deps added for ST's work
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt
+python-dotenv
 
