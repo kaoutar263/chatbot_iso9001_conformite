@@ -260,3 +260,41 @@ def list_documents(convo_id: str, current_user: dict = Depends(get_current_user)
 @router.delete("/{convo_id}/documents/{doc_id}")
 def delete_document(convo_id: str, doc_id: str, current_user: dict = Depends(get_current_user)):
     return {"status": "deleted"}
+
+@router.post("/documents/global", response_model=DocumentUploadResponse)
+def upload_global_document(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
+    """
+    Upload a document to the Global Knowledge Base.
+    Accessible to ALL users and conversations.
+    """
+    try:
+        # 1. Process PDF
+        chunks = process_pdf_stream(file.file)
+        
+        # 2. Add to ChromaDB with Scope="global"
+        collection = get_chroma_collection()
+        ids = []
+        for i, chunk in enumerate(chunks):
+            chunk_id = f"global_{file.filename}_{i}"
+            ids.append(chunk_id)
+            
+        collection.add(
+            documents=chunks,
+            metadatas=[{
+                "source": file.filename, 
+                "page": "auto",
+                "scope": "global"
+            } for _ in chunks],
+            ids=ids
+        )
+        
+        return {
+            "status": "ok",
+            "chunks_added": len(chunks)
+        }
+    except Exception as e:
+        print(f"Global upload failed: {e}")
+        return {
+            "status": "error",
+            "chunks_added": 0
+        }

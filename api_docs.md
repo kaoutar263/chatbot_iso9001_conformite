@@ -114,3 +114,13 @@ curl -X POST "http://127.0.0.1:8000/api/v1/conversations/{id}/documents" \
 
 **DELETE** `/{convo_id}/documents/{doc_id}`
 *   Removes a document.
+
+### Upload Global Document (Shared Knowledge Base)
+
+**POST** `/documents/global`
+
+Uploads a PDF that becomes accessible to **ALL** users and conversations.
+
+*   **Headers**: `Authorization: Bearer <token>`
+*   **Body (Form Data)**:
+    *   `file`: The PDF file.

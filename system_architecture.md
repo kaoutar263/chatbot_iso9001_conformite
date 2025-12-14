@@ -59,7 +59,8 @@ We use a Vector Database to understand the *meaning* of text.
 ## 4. Workflows
 
 ### Ingestion (Setup)
-Run `python -m app.ingestion`. This reads `ISO_9001.pdf`, splits it into chunks, calculates vectors (embeddings), and saves them to `./data/chroma_db`.
+*   **Static**: Run `python -m app.ingestion` to load base ISO standards.
+*   **Dynamic**: Use `POST /api/v1/conversations/documents/global` to add new global policies via the API.
 
 ### User Flow
 1.  **Signup**: User creates account -> Saved to SQLite.
