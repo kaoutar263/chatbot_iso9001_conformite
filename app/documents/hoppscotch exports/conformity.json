@@ -1,0 +1,409 @@
+{
+  "v": 11,
+  "name": "conformity",
+  "folders": [
+    {
+      "v": 11,
+      "name": "signup & login",
+      "folders": [],
+      "requests": [
+        {
+          "v": "17",
+          "name": "create a new user (signup)",
+          "method": "GET",
+          "endpoint": "<<BASE_URL>>/auth/signup",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "  const ts = Date.now().toString();\r\n  pw.env.set(\"TIMESTAMP\", ts);\r\n  pw.env.set(\"TEST_USER\", `testuser_${ts}`);\r\n  pw.env.set(\"TEST_PASS\", `pass_${ts}`);",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": "application/json",
+            "body": "{\n  \"email\": \"<<TEST_USER>>@example.com\",\n  \"password\": \"<<TEST_PASS>>\"\n}"
+          },
+          "requestVariables": [],
+          "responses": {},
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "login",
+          "method": "GET",
+          "endpoint": "<<BASE_URL>>/auth/token",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "const json = pw.response.body;\r\npw.env.set(\"ACCESS_TOKEN\", json.access_token);",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": "application/json",
+            "body": "{\n  \"email\": \"<<TEST_USER>>@example.com\",\n  \"password\": \"<<TEST_PASS>>\"\n}"
+          },
+          "requestVariables": [],
+          "responses": {},
+          "description": null
+        }
+      ],
+      "auth": {
+        "authActive": true,
+        "authType": "inherit"
+      },
+      "headers": [],
+      "variables": [],
+      "description": null
+    },
+    {
+      "v": 11,
+      "name": "authenticated reqs",
+      "folders": [],
+      "requests": [
+        {
+          "v": "17",
+          "name": "create convo Nr 1",
+          "method": "POST",
+          "endpoint": "<<BASE_URL>>/",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "pw.env.set(\"CONVO_1_ID\", String(pw.response.body.convo_id));\r\n",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": null,
+            "body": null
+          },
+          "requestVariables": [],
+          "responses": {},
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "create convo Nr 2",
+          "method": "POST",
+          "endpoint": "<<BASE_URL>>/",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "pw.env.set(\"CONVO_2_ID\", String(pw.response.body.convo_id));\r\n",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": null,
+            "body": null
+          },
+          "requestVariables": [],
+          "responses": {},
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "get all convos",
+          "method": "GET",
+          "endpoint": "<<BASE_URL>>/",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": null,
+            "body": null
+          },
+          "requestVariables": [],
+          "responses": {},
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "up doc 1 to convo 1",
+          "method": "POST",
+          "endpoint": "<<BASE_URL>>/<<CONVO_1_ID>>/documents",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": "multipart/form-data",
+            "body": [
+              {
+                "key": "file",
+                "active": true,
+                "isFile": true,
+                "value": [
+                  {}
+                ]
+              }
+            ]
+          },
+          "requestVariables": [],
+          "responses": {},
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "up doc 2 to convo 1",
+          "method": "POST",
+          "endpoint": "<<BASE_URL>>/<<CONVO_1_ID>>/documents",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": null,
+            "body": null
+          },
+          "requestVariables": [],
+          "responses": {},
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "up doc 1 to convo 2",
+          "method": "POST",
+          "endpoint": "<<BASE_URL>>/<<CONVO_2_ID>>/documents",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": null,
+            "body": null
+          },
+          "requestVariables": [],
+          "responses": {},
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "up doc 2 to convo 2",
+          "method": "POST",
+          "endpoint": "<<BASE_URL>>/<<CONVO_2_ID>>/documents",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": null,
+            "body": null
+          },
+          "requestVariables": [],
+          "responses": {},
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "1 ask convo 1 ",
+          "method": "POST",
+          "endpoint": "<<BASE_URL>>/<<CONVO_1_ID>>/ask",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": "application/json",
+            "body": "{\n  \"message\": \"What are the requirements for leadership?\",\n  \"settings\": {\n    \"model\": \"llama-3.3-70b-versatile\",\n    \"temperature\": 0.2\n  }\n}"
+          },
+          "requestVariables": [],
+          "responses": {},
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "2 ask convo 1 ",
+          "method": "POST",
+          "endpoint": "<<BASE_URL>>/<<CONVO_1_ID>>/ask",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": "application/json",
+            "body": "{\n  \"message\": \"what can you tell me about any meeting minutes you have for me?\",\n  \"settings\": {\n    \"model\": \"llama-3.3-70b-versatile\",\n    \"temperature\": 0.2\n  }\n}"
+          },
+          "requestVariables": [],
+          "responses": {},
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "3 ask convo 1",
+          "method": "POST",
+          "endpoint": "<<BASE_URL>>/<<CONVO_1_ID>>/ask",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": "application/json",
+            "body": "{\n  \"message\": \"What are the requirements for leadership?\",\n  \"settings\": {\n    \"model\": \"llama-3.3-70b-versatile\",\n    \"temperature\": 0.2\n  }\n}"
+          },
+          "requestVariables": [],
+          "responses": {},
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "1 ask convo 2",
+          "method": "POST",
+          "endpoint": "<<BASE_URL>>/<<CONVO_2_ID>>/ask",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": "application/json",
+            "body": "{\n  \"message\": \"What are the requirements for leadership?\",\n  \"settings\": {\n    \"model\": \"llama-3.3-70b-versatile\",\n    \"temperature\": 0.2\n  }\n}"
+          },
+          "requestVariables": [],
+          "responses": {},
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "2 ask convo 2",
+          "method": "POST",
+          "endpoint": "<<BASE_URL>>/<<CONVO_2_ID>>/ask",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": "application/json",
+            "body": "{\n  \"message\": \"What are the requirements for leadership?\",\n  \"settings\": {\n    \"model\": \"llama-3.3-70b-versatile\",\n    \"temperature\": 0.2\n  }\n}"
+          },
+          "requestVariables": [],
+          "responses": {},
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "3 ask convo 2",
+          "method": "POST",
+          "endpoint": "<<BASE_URL>>/<<CONVO_2_ID>>/ask",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": "application/json",
+            "body": "{\n  \"message\": \"What are the requirements for leadership?\",\n  \"settings\": {\n    \"model\": \"llama-3.3-70b-versatile\",\n    \"temperature\": 0.2\n  }\n}"
+          },
+          "requestVariables": [],
+          "responses": {},
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "get convo history",
+          "method": "GET",
+          "endpoint": "<<BASE_URL>>/<<CONVO_1_ID>>/history",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": null,
+            "body": null
+          },
+          "requestVariables": [],
+          "responses": {},
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "get a convo's docs",
+          "method": "GET",
+          "endpoint": "<<BASE_URL>>/<<CONVO_1_ID>>/documents",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": null,
+            "body": null
+          },
+          "requestVariables": [],
+          "responses": {},
+          "description": null
+        }
+      ],
+      "auth": {
+        "authActive": true,
+        "authType": "bearer",
+        "token": "<<ACCESS_TOKEN>>"
+      },
+      "headers": [],
+      "variables": [],
+      "description": null
+    }
+  ],
+  "requests": [],
+  "auth": {
+    "authType": "none",
+    "authActive": true
+  },
+  "headers": [],
+  "variables": [],
+  "description": ""
+}
