@@ -2,7 +2,8 @@ import chromadb
 from chromadb.config import Settings
 from pathlib import Path
 import logging
-from app.utils import process_pdf_stream
+import io
+from app.utils import process_file_stream
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,11 +20,19 @@ class IngestionISO:
         """Pipeline complet d'ingestion"""
         logger.info("📚 Ingestion des documents ISO...")
         
-        for pdf_file in Path("app/documents").glob("*.pdf"):
-            logger.info(f"  Processing: {pdf_file.name}")
+        # Extensions supported
+        extensions = ["*.pdf", "*.md", "*.xlsx", "*.xls"]
+        files = []
+        for ext in extensions:
+            files.extend(list(Path("app/documents").glob(ext)))
             
-            with open(pdf_file, 'rb') as f:
-                chunks = process_pdf_stream(f)
+        for file_path in files:
+            logger.info(f"  Processing: {file_path.name}")
+            
+            with open(file_path, 'rb') as f:
+                # Load whole file into bytes for processing
+                file_bytes = io.BytesIO(f.read())
+                chunks = process_file_stream(file_bytes, file_path.name)
             
             # Ajout à Chromadb
             for i, chunk in enumerate(chunks):

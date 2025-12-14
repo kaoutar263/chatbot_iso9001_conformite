@@ -17,4 +17,7 @@ python-jose[cryptography]
 passlib[bcrypt]
 bcrypt
 python-dotenv
+pandas
+openpyxl
+tabulate
 

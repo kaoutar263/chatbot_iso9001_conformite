@@ -123,4 +123,4 @@ Uploads a PDF that becomes accessible to **ALL** users and conversations.
 
 *   **Headers**: `Authorization: Bearer <token>`
 *   **Body (Form Data)**:
-    *   `file`: The PDF file.
+    *   `file`: The document file. Supported formats: `.pdf`, `.xlsx`, `.xls`, `.md`.

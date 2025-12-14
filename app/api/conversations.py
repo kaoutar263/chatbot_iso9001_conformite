@@ -13,11 +13,13 @@ from chromadb.config import Settings
 from groq import Groq
 import sqlite3
 from datetime import datetime
-from app.utils import process_pdf_stream
+from app.utils import process_file_stream
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Initialize Groq Client
 
 # Initialize Groq Client
 client = Groq(
@@ -209,10 +211,10 @@ def upload_document(convo_id: str, file: UploadFile = File(...), current_user: d
     finally:
         conn.close()
 
-    # 1. Process PDF
+    # 1. Process File (PDF/Excel/MD)
     try:
-        # Read file into memory (FastAPI UploadFile.file is a SpooledTemporaryFile)
-        chunks = process_pdf_stream(file.file)
+        # Read file into memory
+        chunks = process_file_stream(file.file, file.filename)
         
         # 2. Add to ChromaDB with Scope
         collection = get_chroma_collection()
@@ -268,8 +270,8 @@ def upload_global_document(file: UploadFile = File(...), current_user: dict = De
     Accessible to ALL users and conversations.
     """
     try:
-        # 1. Process PDF
-        chunks = process_pdf_stream(file.file)
+        # 1. Process File
+        chunks = process_file_stream(file.file, file.filename)
         
         # 2. Add to ChromaDB with Scope="global"
         collection = get_chroma_collection()
