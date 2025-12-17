@@ -243,9 +243,54 @@ def list_documents(convo_id: str, current_user: dict = Depends(get_current_user)
     
     return {"documents": list(sources)}
 
-@router.delete("/{convo_id}/documents/{doc_id}")
-def delete_document(convo_id: str, doc_id: str, current_user: dict = Depends(get_current_user)):
-    return {"status": "deleted"}
+@router.delete("/{convo_id}/documents/{filename}")
+def delete_document(convo_id: str, filename: str, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Validate ownership
+    query = conversations.select().where(
+        (conversations.c.id == convo_id) & (conversations.c.user_id == current_user["id"])
+    )
+    if not db.execute(query).fetchone():
+         # In a real app HTTP 403, but returning status for simplicity as per existing pattern
+         return {"status": "error", "detail": "Access denied"}
+
+    collection = get_chroma_collection()
+    # Delete where scope=convo_id AND source=filename
+    # Chroma delete supports where filter
+    try:
+        collection.delete(
+            where={
+                "$and": [
+                    {"scope": convo_id},
+                    {"source": filename}
+                ]
+            }
+        )
+        return {"status": "deleted", "file": filename}
+    except Exception as e:
+        print(f"Delete failed: {e}")
+        return {"status": "error", "detail": str(e)}
+
+@router.get("/documents/global")
+def list_global_documents(current_user: dict = Depends(get_current_user)):
+    """
+    List all documents in the Global Knowledge Base.
+    """
+    collection = get_chroma_collection()
+    # Query all global chunks (limit by metadata only if possible, but get() fetches embeddings by default which is heavy)
+    # We use include=['metadatas'] to avoid fetching embeddings
+    result = collection.get(
+        where={"scope": "global"},
+        include=["metadatas"]
+    )
+    
+    # Extract unique sources
+    sources = set()
+    if result["metadatas"]:
+        for m in result["metadatas"]:
+            if "source" in m:
+                sources.add(m["source"])
+    
+    return {"documents": list(sources)}
 
 @router.post("/documents/global", response_model=DocumentUploadResponse)
 def upload_global_document(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
