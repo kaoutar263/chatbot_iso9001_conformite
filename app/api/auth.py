@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
-from datetime import timedelta
 from jose import JWTError, jwt
-import sqlite3
+from sqlalchemy.orm import Session
+from datetime import datetime
 
 from app.auth import get_password_hash, verify_password, create_access_token, SECRET_KEY, ALGORITHM
-from app.database import get_db_connection, init_db
+from app.database import get_db, users
 
 router = APIRouter()
 
@@ -21,30 +21,31 @@ class Token(BaseModel):
     token_type: str
 
 @router.post("/signup", response_model=Token)
-async def signup(user: UserCreate):
+async def signup(user: UserCreate, db: Session = Depends(get_db)):
     # Check if user exists
-    conn = get_db_connection()
-    cursor = conn.execute("SELECT id FROM users WHERE email = ?", (user.email,))
-    if cursor.fetchone():
+    query = users.select().where(users.c.email == user.email)
+    result = db.execute(query).fetchone()
+    if result:
         raise HTTPException(status_code=400, detail="Email already registered")
     
     hashed = get_password_hash(user.password)
-    conn.execute("INSERT INTO users (email, hashed_password, created_at) VALUES (?, ?, datetime('now'))", 
-                 (user.email, hashed))
-    conn.commit()
-    conn.close()
+    insert_stmt = users.insert().values(
+        email=user.email,
+        hashed_password=hashed,
+        created_at=datetime.utcnow().isoformat()
+    )
+    db.execute(insert_stmt)
+    db.commit()
     
     access_token = create_access_token(data={"sub": user.email})
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.post("/token", response_model=Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    conn = get_db_connection()
-    cursor = conn.execute("SELECT hashed_password FROM users WHERE email = ?", (form_data.username,))
-    row = cursor.fetchone()
-    conn.close()
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    query = users.select().where(users.c.email == form_data.username)
+    result = db.execute(query).fetchone()
     
-    if not row or not verify_password(form_data.password, row[0]):
+    if not result or not verify_password(form_data.password, result.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -54,7 +55,7 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     access_token = create_access_token(data={"sub": form_data.username})
     return {"access_token": access_token, "token_type": "bearer"}
 
-async def get_current_user(token: str = Depends(oauth2_scheme)):
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -68,11 +69,10 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     except JWTError:
         raise credentials_exception
         
-    conn = get_db_connection()
-    cursor = conn.execute("SELECT id, email FROM users WHERE email = ?", (username,))
-    user = cursor.fetchone()
-    conn.close()
+    query = users.select().where(users.c.email == username)
+    user = db.execute(query).fetchone()
     
     if user is None:
         raise credentials_exception
-    return {"id": user[0], "email": user[1]}
+    return {"id": user.id, "email": user.email}
+

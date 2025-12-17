@@ -12,3 +12,7 @@ __pycache__/
 
 # Logs
 *.log
+
+# Data
+chat.db
+data/

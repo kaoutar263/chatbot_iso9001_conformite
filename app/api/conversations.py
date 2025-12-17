@@ -1,7 +1,8 @@
 from fastapi import APIRouter, UploadFile, File, Depends
 from uuid import uuid4
 from app.api.auth import get_current_user
-from app.database import get_db_connection
+from sqlalchemy.orm import Session
+from app.database import get_db, conversations, messages
 from app.schemas.conversation import (
     ConversationCreateResponse,
     ConversationListResponse
@@ -10,21 +11,13 @@ from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.document import DocumentUploadResponse
 import chromadb
 from chromadb.config import Settings
-from groq import Groq
-import sqlite3
+from app.llm import get_llm_client
 from datetime import datetime
 from app.utils import process_file_stream
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
-
-# Initialize Groq Client
-
-# Initialize Groq Client
-client = Groq(
-    api_key=os.getenv("GROQ_API_KEY")
-)
 
 # Initialize ChromaDB Client
 chroma_client = chromadb.PersistentClient(
@@ -41,94 +34,106 @@ router = APIRouter()
 # 🟦 CONVERSATION MANAGEMENT
 
 @router.post("/", response_model=ConversationCreateResponse)
-def create_conversation(current_user: dict = Depends(get_current_user)):
+def create_conversation(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     new_id = str(uuid4())
-    conn = get_db_connection()
-    try:
-        conn.execute("INSERT INTO conversations (id, user_id, created_at) VALUES (?, ?, ?)", 
-                     (new_id, current_user["id"], datetime.now().isoformat()))
-        conn.commit()
-    finally:
-        conn.close()
+    insert_stmt = conversations.insert().values(
+        id=new_id,
+        user_id=current_user["id"],
+        created_at=datetime.utcnow().isoformat()
+    )
+    db.execute(insert_stmt)
+    db.commit()
     return {"convo_id": new_id}
 
 @router.get("/", response_model=ConversationListResponse)
-def list_conversations(current_user: dict = Depends(get_current_user)):
-    conn = get_db_connection()
-    try:
-        cursor = conn.execute("SELECT id FROM conversations WHERE user_id = ?", (current_user["id"],))
-        ids = [row[0] for row in cursor.fetchall()]
-    finally:
-        conn.close()
+def list_conversations(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    query = conversations.select().with_only_columns(conversations.c.id).where(conversations.c.user_id == current_user["id"])
+    result = db.execute(query).fetchall()
+    ids = [row.id for row in result]
     return {"conversations": ids}
 
 @router.get("/{convo_id}/history")
-def get_conversation_history(convo_id: str, current_user: dict = Depends(get_current_user)):
-    conn = get_db_connection()
-    try:
-        # Validate ownership
-        cursor = conn.execute("SELECT 1 FROM conversations WHERE id = ? AND user_id = ?", (convo_id, current_user["id"]))
-        if not cursor.fetchone():
-             return {"history": []}
+def get_conversation_history(convo_id: str, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Validate ownership
+    query = conversations.select().where(
+        (conversations.c.id == convo_id) & (conversations.c.user_id == current_user["id"])
+    )
+    if not db.execute(query).fetchone():
+         return {"history": []}
 
-        cursor = conn.execute("SELECT role, content, timestamp FROM messages WHERE conversation_id = ? ORDER BY id ASC", (convo_id,))
-        messages = [
-            {"role": row[0], "content": row[1], "timestamp": row[2]} 
-            for row in cursor.fetchall()
-        ]
-    finally:
-        conn.close()
-    return {"history": messages}
+    msg_query = messages.select().where(messages.c.conversation_id == convo_id).order_by(messages.c.id.asc())
+    result = db.execute(msg_query).fetchall()
+    
+    msgs = [
+        {"role": row.role, "content": row.content, "timestamp": row.timestamp} 
+        for row in result
+    ]
+    return {"history": msgs}
 
 # 🟧 CHAT ENDPOINT
 
 @router.post("/{convo_id}/ask", response_model=ChatResponse)
-async def ask_question(convo_id: str, payload: ChatRequest, current_user: dict = Depends(get_current_user)):
+async def ask_question(convo_id: str, payload: ChatRequest, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
         # Validate ownership
-        conn = get_db_connection()
-        try:
-            cursor = conn.execute("SELECT 1 FROM conversations WHERE id = ? AND user_id = ?", (convo_id, current_user["id"]))
-            if not cursor.fetchone():
-                 return {"answer": "Access Denied: You do not own this conversation.", "citations": []}
-        finally:
-            conn.close()
+        query = conversations.select().where(
+            (conversations.c.id == convo_id) & (conversations.c.user_id == current_user["id"])
+        )
+        if not db.execute(query).fetchone():
+             return {"answer": "Access Denied: You do not own this conversation.", "citations": []}
 
         question = payload.message
         
-        # 1. Vector Search
+        # 1. Vector Search (Hybrid Strategy)
         collection = get_chroma_collection()
         
-        # Filter: Global Metadata OR Conversation Scope
-        where_filter = {
-            "$or": [
-                {"scope": "global"},
-                {"scope": convo_id}
-            ]
-        }
+        # Strategy: Query global and local separately to ensure representation from both
+        # This prevents large global corpora from drowning out specific local files
         
-        results = collection.query(
+        # A. Local Scope Query
+        results_local = collection.query(
             query_texts=[question],
-            n_results=3,
-            where=where_filter
+            n_results=5,
+            where={"scope": convo_id}
         )
         
+        # B. Global Scope Query
+        results_global = collection.query(
+            query_texts=[question],
+            n_results=5,
+            where={"scope": "global"}
+        )
+        
+        # Merge Results
         context_text = ""
         citations = []
         
-        if results["documents"] and results["documents"][0]:
-            for i, doc in enumerate(results["documents"][0]):
-                meta = results["metadatas"][0][i] if results["metadatas"] else {}
-                source = meta.get("source", "Unknown")
-                # Truncate content for display
-                display_content = (doc[:200] + "...") if len(doc) > 200 else doc
-                
-                context_text += f"\n---\nSource: {source}\nContent: {doc}\n"
-                citations.append({
-                    "source": source,
-                    "doc": display_content,
-                    "chunk_id": results["ids"][0][i]
-                })
+        # Helper to process results
+        def process_results(res):
+            if res["documents"] and res["documents"][0]:
+                for i, doc in enumerate(res["documents"][0]):
+                    meta = res["metadatas"][0][i] if res["metadatas"] else {}
+                    src = meta.get("source", "Unknown")
+                    doc_id = res["ids"][0][i] if res["ids"] else ""
+                    
+                    # Deduplication check could go here if needed, but scopes are distinct
+                    
+                    # Truncate content for display in citations (not in context)
+                    display_content = (doc[:200] + "...") if len(doc) > 200 else doc
+                    
+                    nonlocal context_text
+                    context_text += f"\n---\nSource: {src}\nContent: {doc}\n"
+                    citations.append({
+                        "source": src,
+                        "doc": display_content,
+                        "chunk_id": doc_id
+                    })
+
+        process_results(results_local)
+        process_results(results_global)
+        
+        if not context_text:
+             context_text = "No relevant documents found."
         
         # 2. LLM Generation
         system_prompt = f"""You are an ISO 9001 compliance expert. Answer the question based ONLY on the provided context.
@@ -137,52 +142,30 @@ async def ask_question(convo_id: str, payload: ChatRequest, current_user: dict =
         {context_text}
         """
         
-        # Select model from payload or default
-        model_name = "llama-3.3-70b-versatile"
-        if payload.settings and payload.settings.model:
-            model_name = payload.settings.model
-
         # Build Message History
         # Fetch last 6 messages (3 turns)
-        conn = get_db_connection()
-        try:
-            cursor = conn.execute(
-                "SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 6", 
-                (convo_id,)
-            )
-            # Reverse to chronological order
-            history_rows = cursor.fetchall()[::-1]
-            history_messages = [{"role": row[0], "content": row[1]} for row in history_rows]
-        finally:
-            conn.close()
+        msg_query = messages.select().where(messages.c.conversation_id == convo_id).order_by(messages.c.id.desc()).limit(6)
+        history_rows = db.execute(msg_query).fetchall()[::-1]
+        
+        history_messages = [{"role": row.role, "content": row.content} for row in history_rows]
 
-        # Construct full message list
-        # Ensure roles are 'system', 'user', 'assistant'
-        messages = [{"role": "system", "content": system_prompt}]
+        # Get Generic LLM Client
+        llm_client = get_llm_client()
         
-        for msg in history_messages:
-            # Simple validation/sanitization could go here
-            messages.append(msg)
-            
-        messages.append({"role": "user", "content": question})
-
-        completion = client.chat.completions.create(
-            messages=messages,
-            model=model_name,
-        )
+        # Generate Answer
+        model_name = payload.settings.model if payload.settings and payload.settings.model else None
+        answer = llm_client.generate_answer(system_prompt, history_messages, question, model=model_name)
         
-        answer = completion.choices[0].message.content
-        
-        # 3. Save History (SQLite)
-        timestamp = datetime.now().isoformat()
+        # 3. Save History
         try:
-            conn = get_db_connection()
-            conn.execute("INSERT INTO messages (conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
-                         (convo_id, "user", question, timestamp))
-            conn.execute("INSERT INTO messages (conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
-                         (convo_id, "assistant", answer, timestamp))
-            conn.commit()
-            conn.close()
+            timestamp = datetime.utcnow().isoformat()
+            db.execute(messages.insert().values(
+                conversation_id=convo_id, role="user", content=question, timestamp=timestamp
+            ))
+            db.execute(messages.insert().values(
+                conversation_id=convo_id, role="assistant", content=answer, timestamp=timestamp
+            ))
+            db.commit()
         except Exception as e:
             print(f"Error saving history: {e}")
 
@@ -201,29 +184,30 @@ async def ask_question(convo_id: str, payload: ChatRequest, current_user: dict =
 # 🟩 DOCUMENT MANAGEMENT
 
 @router.post("/{convo_id}/documents", response_model=DocumentUploadResponse)
-def upload_document(convo_id: str, file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
+def upload_document(convo_id: str, file: UploadFile = File(...), current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     # Validate ownership
-    conn = get_db_connection()
-    try:
-        cursor = conn.execute("SELECT 1 FROM conversations WHERE id = ? AND user_id = ?", (convo_id, current_user["id"]))
-        if not cursor.fetchone():
-             return {"status": "error", "chunks_added": 0}
-    finally:
-        conn.close()
+    query = conversations.select().where(
+        (conversations.c.id == convo_id) & (conversations.c.user_id == current_user["id"])
+    )
+    if not db.execute(query).fetchone():
+         return {"status": "error", "chunks_added": 0}
 
     # 1. Process File (PDF/Excel/MD)
     try:
         # Read file into memory
         chunks = process_file_stream(file.file, file.filename)
         
-        # 2. Add to ChromaDB with Scope
+        # 2. Add to ChromaDB with Scope (Upsert)
         collection = get_chroma_collection()
         ids = []
+        from app.utils import generate_chunk_id
+        
         for i, chunk in enumerate(chunks):
-            chunk_id = f"{convo_id}_{file.filename}_{i}"
+            # OLD: chunk_id = f"{convo_id}_{file.filename}_{i}"
+            chunk_id = generate_chunk_id(convo_id, file.filename, i)
             ids.append(chunk_id)
             
-        collection.add(
+        collection.upsert(
             documents=chunks,
             metadatas=[{
                 "source": file.filename, 
@@ -273,14 +257,16 @@ def upload_global_document(file: UploadFile = File(...), current_user: dict = De
         # 1. Process File
         chunks = process_file_stream(file.file, file.filename)
         
-        # 2. Add to ChromaDB with Scope="global"
+        # 2. Add to ChromaDB with Scope="global" (Upsert)
         collection = get_chroma_collection()
         ids = []
+        from app.utils import generate_chunk_id
+        
         for i, chunk in enumerate(chunks):
-            chunk_id = f"global_{file.filename}_{i}"
+            chunk_id = generate_chunk_id("global", file.filename, i)
             ids.append(chunk_id)
             
-        collection.add(
+        collection.upsert(
             documents=chunks,
             metadatas=[{
                 "source": file.filename, 

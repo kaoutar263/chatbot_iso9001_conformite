@@ -34,16 +34,29 @@ class IngestionISO:
                 file_bytes = io.BytesIO(f.read())
                 chunks = process_file_stream(file_bytes, file_path.name)
             
-            # Ajout à Chromadb
+            # Add to Chromadb using Upsert and Standard IDs
+            chunks_to_add = []
+            metadatas = []
+            ids = []
+            
             for i, chunk in enumerate(chunks):
-                self.collection.add(
-                    documents=[chunk],
-                    metadatas=[{
-                        "source": pdf_file.name, 
-                        "page": "auto",
-                        "scope": "global"  # <-- Added Scope
-                    }],
-                    ids=[f"{pdf_file.stem}_{i}"]
+                chunks_to_add.append(chunk)
+                metadatas.append({
+                    "source": file_path.name, 
+                    "page": "auto",
+                    "scope": "global"
+                })
+                # Use standard ID format: global_filename_index
+                # safe_filename logic is duplicated here slightly unless we import from utils
+                # relying on simple format for now or we should import generate_chunk_id
+                from app.utils import generate_chunk_id
+                ids.append(generate_chunk_id("global", file_path.name, i))
+
+            if chunks_to_add:
+                self.collection.upsert(
+                    documents=chunks_to_add,
+                    metadatas=metadatas,
+                    ids=ids
                 )
             
             logger.info(f"    ✅ {len(chunks)} chunks ajoutés")
