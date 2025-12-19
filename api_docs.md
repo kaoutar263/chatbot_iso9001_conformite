@@ -1,126 +1,130 @@
-# ISO 9001 Chatbot API Documentation
+# Backend API Documentation
 
-**Base URL (Auth)**: `http://127.0.0.1:8000/api/v1/auth`
-**Base URL (Conversations)**: `http://127.0.0.1:8000/api/v1/conversations`
+**Base URL**: `http://localhost:8000/api/v1`
 
-## Authentication
+## 1. Authentication
 
-All endpoints (except Signup/Login) require a JWT Bearer Token.
+All endpoints (except `/auth/login` and `/auth/signup`) require a **Bearer Token**.
 
-**POST** `/auth/signup`
-*   Create a new account.
-*   Body: `{"email": "user@example.com", "password": "password123"}`
-
+### Login
 **POST** `/auth/token`
-*   Login to get an access token.
-*   **Important**: This endpoint requires **Form Data**, not JSON.
-*   **Postman Setup**:
-    1.  Go to **Body** tab.
-    2.  Select **`x-www-form-urlencoded`**.
-    3.  **Key**: `username` (MUST be exactly "username"), **Value**: `user@example.com`
-    4.  **Key**: `password`, **Value**: `password123`
-*   Response: `{"access_token": "...", "token_type": "bearer"}`
-
-**Using the Token:**
-Add header `Authorization: Bearer <your_token>` to all subsequent requests.
-
-## Core Endpoint: Ask Question (RAG)
-
-**POST** `/{convo_id}/ask`
-
-This is the main endpoint used to interact with the chatbot. It performs the vector search and LLM generation.
-
-### Request Body (`application/json`)
-```json
-{
-  "message": "What are the requirements for leadership?",
-  "settings": {
-    "model": "llama-3.3-70b-versatile",
-    "temperature": 0.2
+- **Content-Type**: `application/x-www-form-urlencoded`
+- **Fields**:
+  - `username`: Email address (e.g., `user@example.com`)
+  - `password`: Secret password
+- **Response**:
+  ```json
+  {
+    "access_token": "eyJhb...",
+    "token_type": "bearer"
   }
-}
-```
-*   `message` (required): The user's question.
-*   `settings` (optional): Configuration object. Can be omitted.
-    *   `model`: Generic name of LLM model. Defaults to `llama-3.3-70b-versatile`.
+  ```
+> **Frontend Note**: Store this token and send it in the header `Authorization: Bearer <token>` for all other requests.
 
-### Response Body (`application/json`)
-```json
-{
-  "answer": "Title 5.1 Leadership and commitment states that...",
-  "citations": [
-    {
-      "source": "ISO_9001_V_2015.pdf",
-      "doc": "Top management shall demonstrate leadership...",
-      "chunk_id": "ISO_9001_V_2015_42"
+---
+
+## 2. Conversations
+
+### Create Conversation
+**POST** `/conversations/`
+- **Description**: Starts a new chat session.
+- **Request**: Empty body `{}`
+- **Response**:
+  ```json
+  { "convo_id": "550e8400-e29b-..." }
+  ```
+
+### List Conversations
+**GET** `/conversations/`
+- **Description**: Returns a list of all conversation IDs owned by the user.
+- **Response**:
+  ```json
+  { "conversations": ["550e8400...", "a1b2c3d4..."] }
+  ```
+
+### Get History
+**GET** `/conversations/{convo_id}/history`
+- **Description**: Fetches the chat log for valid context.
+- **Response**:
+  ```json
+  {
+    "history": [
+      { "role": "user", "content": "Hello", "timestamp": "2023-..." },
+      { "role": "assistant", "content": "Hi there!", "timestamp": "2023-..." }
+    ]
+  }
+  ```
+
+---
+
+## 3. Chat (RAG)
+
+### Ask Question
+**POST** `/conversations/{convo_id}/ask`
+- **Description**: Main interaction endpoint. Uses Hybrid Retrieval (Global + Conversation Docs).
+- **Request Body**:
+  ```json
+  {
+    "message": "What does the ISO standard say about leadership?",
+    "settings": {
+      "model": "llama-3.3-70b-versatile",
+      "temperature": 0.2
     }
-  ]
-}
-```
+  }
+  ```
+- **Response**:
+  ```json
+  {
+    "answer": "The standard requires top management to...",
+    "citations": [
+      {
+        "source": "ISO_9001.pdf",
+        "doc": "excerpt text...",
+        "chunk_id": "global_iso_0"
+      },
+      {
+        "source": "my_notes.txt",
+        "doc": "local notes...",
+        "chunk_id": "convo_notes_1"
+      }
+    ]
+  }
+  ```
 
 ---
 
-## Conversation Management
+## 4. Document Management
 
-**POST** `/`
-*   Creates a new conversation session.
-*   **Response**: `{"convo_id": "uuid..."}`
+### Upload to Conversation (Private)
+**POST** `/conversations/{convo_id}/documents`
+- **Description**: Uploads a file accessible **only** in this conversation.
+- **Content-Type**: `multipart/form-data`
+- **Form Field**: `file` (Binary)
+- **Response**: `{"status": "ok", "chunks_added": 12}`
 
-**GET** `/`
-*   Lists active conversation IDs.
-*   **Response**: `{"conversations": ["uuid-1", ...]}`
+### Upload to Global Knowledge Base (Public)
+**POST** `/conversations/documents/global`
+- **Description**: Uploads a file accessible to **ALL** users.
+- **Content-Type**: `multipart/form-data`
+- **Form Field**: `file` (Binary)
+- **Response**: `{"status": "ok", "chunks_added": 50}`
 
-**GET** `/{convo_id}/history`
-*   *Implementation Pending (Redis)*
-*   Returns the chat history for a session.
+### List Conversation Documents
+**GET** `/conversations/{convo_id}/documents`
+- **Response**:
+  ```json
+  { "documents": ["notes.txt", "invoice.pdf"] }
+  ```
 
----
+### List Global Documents
+**GET** `/conversations/documents/global`
+- **Response**:
+  ```json
+  { "documents": ["ISO_9001_2015.pdf", "Company_Policy.pdf"] }
+  ```
 
-## Document Management
-
-### Upload Document (Private Knowledge Base)
-
-**POST** `/{convo_id}/documents`
-
-Uploads a PDF to be used *only* within this specific conversation context.
-
-**Postman Setup:**
-1.  **Method**: `POST`
-2.  **URL**: `http://127.0.0.1:8000/api/v1/conversations/{id}/documents`
-3.  **Body Tab**: Select `form-data`.
-4.  **Key**: `file` (Change generic type "Text" to "File" on the right side of the key field).
-5.  **Value**: Select your `.pdf` file.
-
-**cURL Example:**
-```bash
-curl -X POST "http://127.0.0.1:8000/api/v1/conversations/{id}/documents" \
-  -H "accept: application/json" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@/path/to/your/document.pdf"
-```
-
-**Response**:
-```json
-{
-  "status": "ok",
-  "chunks_added": 15
-}
-```
-
-### List Documents
-
-**GET** `/{convo_id}/documents`
-*   Lists documents attached to a conversation.
-
-**DELETE** `/{convo_id}/documents/{doc_id}`
-*   Removes a document.
-
-### Upload Global Document (Shared Knowledge Base)
-
-**POST** `/documents/global`
-
-Uploads a PDF that becomes accessible to **ALL** users and conversations.
-
-*   **Headers**: `Authorization: Bearer <token>`
-*   **Body (Form Data)**:
-    *   `file`: The document file. Supported formats: `.pdf`, `.xlsx`, `.xls`, `.md`.
+### Delete Document
+**DELETE** `/conversations/{convo_id}/documents/{filename}`
+- **Description**: Permanently removes a document and its vectors from the conversation.
+- **Path Param**: `filename` (e.g., `notes.txt`)
+- **Response**: `{"status": "deleted", "file": "notes.txt"}`

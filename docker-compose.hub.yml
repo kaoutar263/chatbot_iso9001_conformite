@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  chatbot:
+    # REPLACE 'yourusername' with your actual Docker Hub username
+    image: ${DOCKER_IMAGE_NAME:-yourusername/chatbot-iso:latest}
+    container_name: chatbot_app_prod
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      # Maps local .env to container
+      - ./.env:/app/.env
+    environment:
+      - DATABASE_URL=sqlite:///./data/chat.db
+      - LLM_PROVIDER=groq
+      - GROQ_API_KEY=${GROQ_API_KEY}

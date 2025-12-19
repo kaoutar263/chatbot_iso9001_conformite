@@ -6,7 +6,8 @@ python-multipart
 
 # deps added for BI's work
 chromadb==1.3.7
-pypdf
+pypdf>=3.0.0
+psycopg2-binary
 groq
 
 # deps added for RA's work

@@ -10,5 +10,26 @@ services:
       - ./data:/app/data
       - ./.env:/app/.env
     environment:
-      - DATABASE_URL=sqlite:///./data/chat.db
+      # Update connection string to use the 'db' service alias
+      - DATABASE_URL=${DATABASE_URL:-postgresql://chatbot:securepass@db:5432/chatbot_db}
       - LLM_PROVIDER=groq
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    depends_on:
+      - db
+
+  db:
+    image: postgres:15-alpine
+    container_name: chatbot_postgres
+    restart: always
+    environment:
+      - POSTGRES_USER=chatbot
+      - POSTGRES_PASSWORD=securepass
+      - POSTGRES_DB=chatbot_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # Expose if you need external access, otherwise keep internal only
+      - "5432:5432"
+
+volumes:
+  postgres_data:
